@@ -136,9 +136,7 @@ class ChatHandler(WebSocketHandler):
     @coroutine
     def open(self, chat_id):
 
-        redis.zadd("sockets_alive", time.time() + 60, "%s/%s/%s" % (self.chat_id, self.session_id, self.id))
         sockets.add(self)
-        redis.sadd("chat:%s:sockets:%s" % (self.chat_id, self.session_id), self.id)
         if DEBUG:
             print("socket opened: %s %s %s" % (self.id, self.chat.url, self.user.username))
 
@@ -184,6 +182,7 @@ class ChatHandler(WebSocketHandler):
         self.db.close()
 
     def on_message(self, message):
+        # TODO lua it up
         if redis.zadd("sockets_alive", time.time() + 60, "%s/%s/%s" % (self.chat_id, self.session_id, self.id)):
             # We've been reaped, so disconnect.
             self.close()
@@ -205,7 +204,7 @@ class ChatHandler(WebSocketHandler):
             message_type = "disconnect"
         else:
             message_type = "timeout"
-        if self.joined and disconnect(redis, self.chat_id, self.id):
+        if self.joined and disconnect(redis, self.chat_id, self.session_id, self.id):
             try:
                 send_quit_message(self.db, redis, *self.get_chat_user(), type=message_type)
             except NoResultFound:
@@ -218,8 +217,6 @@ class ChatHandler(WebSocketHandler):
         self.set_typing(False)
         if DEBUG:
             print("socket closed: %s" % (self.id))
-        redis.srem("chat:%s:sockets:%s" % (self.chat_id, self.session_id), self.id)
-        redis.zrem("sockets_alive", "%s/%s/%s" % (self.chat_id, self.session_id, self.id))
 
         try:
             sockets.remove(self)
